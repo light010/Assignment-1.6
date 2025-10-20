@@ -28,6 +28,17 @@
 -- CREATE TABLE IF NOT EXISTS your_catalog.your_schema.table_name (...)
 -- ============================================================================
 
+-- If there is existing table/views:
+-- Drop in correct order
+-- DROP VIEW IF EXISTS v_detection_run_stats;
+-- DROP VIEW IF EXISTS v_regeneration_queue;
+-- DROP VIEW IF EXISTS v_latest_content_checksums;
+-- DROP VIEW IF EXISTS v_content_detection_summary;
+
+-- DROP TABLE IF EXISTS content_change_log;
+-- DROP TABLE IF EXISTS faq_answers;
+-- DROP TABLE IF EXISTS faq_questions;
+-- DROP TABLE IF EXISTS content_repo;
 -- ============================================================================
 -- REQUIREMENTS
 -- ============================================================================
@@ -87,7 +98,7 @@ CREATE TABLE IF NOT EXISTS content_repo (
     -- Primary key
     -- Note: GENERATED ALWAYS AS IDENTITY requires DBR 10.4+
     -- If you get an error, replace with: ud_source_file_id BIGINT NOT NULL
-    ud_source_file_id BIGINT GENERATED ALWAYS AS IDENTITY,
+    ud_source_file_id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY,
 
     -- Organization and context
     domain STRING,
@@ -98,7 +109,7 @@ CREATE TABLE IF NOT EXISTS content_repo (
     -- File identification
     raw_file_nme STRING NOT NULL,
     raw_file_type STRING,
-    raw_file_version_nbr INT DEFAULT 1,
+    raw_file_version_nbr INT,
     raw_file_page_nbr INT NOT NULL,
 
     -- Source information
@@ -114,13 +125,13 @@ CREATE TABLE IF NOT EXISTS content_repo (
     title_nme STRING,
     breadcrumb_txt STRING,
     content_tags_txt STRING,
-    version_nbr INT DEFAULT 1,
+    version_nbr INT,
     content_checksum STRING,
     file_status STRING,
 
-    -- Timestamps
-    created_dt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
-    last_modified_dt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP()
+    -- Timestamps (defaults will be added via ALTER TABLE)
+    created_dt TIMESTAMP NOT NULL,
+    last_modified_dt TIMESTAMP NOT NULL
 )
 COMMENT 'Source content repository - foundation table for all content tracking'
 TBLPROPERTIES (
@@ -135,6 +146,12 @@ ALTER TABLE content_repo ADD CONSTRAINT chk_content_checksum CHECK (content_chec
 ALTER TABLE content_repo ADD CONSTRAINT chk_file_status CHECK (file_status IS NULL OR file_status IN ('Active', 'Inactive', 'Archived'));
 ALTER TABLE content_repo ADD CONSTRAINT chk_page_nbr CHECK (raw_file_page_nbr > 0);
 
+-- Add default values after table creation (required for some Databricks versions)
+ALTER TABLE content_repo ALTER COLUMN raw_file_version_nbr SET DEFAULT 1;
+ALTER TABLE content_repo ALTER COLUMN version_nbr SET DEFAULT 1;
+ALTER TABLE content_repo ALTER COLUMN created_dt SET DEFAULT CURRENT_TIMESTAMP();
+ALTER TABLE content_repo ALTER COLUMN last_modified_dt SET DEFAULT CURRENT_TIMESTAMP();
+
 -- ============================================================================
 -- Table 2: faq_questions
 -- ============================================================================
@@ -143,7 +160,7 @@ ALTER TABLE content_repo ADD CONSTRAINT chk_page_nbr CHECK (raw_file_page_nbr > 
 
 CREATE TABLE IF NOT EXISTS faq_questions (
     -- Primary key
-    question_id BIGINT GENERATED ALWAYS AS IDENTITY,
+    question_id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY,
 
     -- Question versions and history
     prev_recommended_question_txt STRING,
@@ -192,7 +209,7 @@ ALTER TABLE faq_questions ADD CONSTRAINT pk_faq_questions PRIMARY KEY (question_
 
 CREATE TABLE IF NOT EXISTS faq_answers (
     -- Primary key
-    answer_id BIGINT GENERATED ALWAYS AS IDENTITY,
+    answer_id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY,
 
     -- Foreign key to question
     question_id BIGINT NOT NULL,
@@ -254,7 +271,7 @@ ALTER TABLE faq_answers ADD CONSTRAINT pk_faq_answers PRIMARY KEY (answer_id);
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS content_change_log (
-    change_id BIGINT GENERATED ALWAYS AS IDENTITY,
+    change_id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY,
 
     -- ============================================================================
     -- CORE IDENTITY (Dual Identity Model)
@@ -297,13 +314,13 @@ CREATE TABLE IF NOT EXISTS content_change_log (
     -- ============================================================================
     -- TIMESTAMPS
     -- ============================================================================
-    detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    detected_at TIMESTAMP NOT NULL,
     source_modified_at TIMESTAMP NOT NULL,
 
     -- ============================================================================
     -- FAQ IMPACT METRICS
     -- ============================================================================
-    existing_faq_count INT DEFAULT 0 COMMENT 'How many FAQs exist for this checksum',
+    existing_faq_count INT COMMENT 'How many FAQs exist for this checksum',
 
     -- ============================================================================
     -- DETECTION CONTEXT (Batch Tracking)
@@ -321,6 +338,10 @@ TBLPROPERTIES (
 -- Add constraints after table creation to avoid SQL Editor parsing issues
 ALTER TABLE content_change_log ADD CONSTRAINT pk_content_change_log PRIMARY KEY (change_id);
 ALTER TABLE content_change_log ADD CONSTRAINT chk_checksum_length CHECK (LENGTH(content_checksum) = 64);
+
+-- Add default values after table creation (required for some Databricks versions)
+ALTER TABLE content_change_log ALTER COLUMN detected_at SET DEFAULT CURRENT_TIMESTAMP();
+ALTER TABLE content_change_log ALTER COLUMN existing_faq_count SET DEFAULT 0;
 
 -- Foreign key constraint (optional - comment out if it causes issues)
 -- Note: Foreign keys in Databricks are informational only (not enforced)
@@ -508,6 +529,15 @@ ORDER BY run_started_at DESC;
 
 -- ============================================================================
 -- TROUBLESHOOTING SECTION
+-- ============================================================================
+
+-- ============================================================================
+-- ERROR: "You need to enable the delta table feature that allows column defaults"
+-- ============================================================================
+-- This script already handles this! All DEFAULT values are set via ALTER TABLE
+-- after table creation, not in CREATE TABLE statements.
+-- If you still get this error, check that you're running the ENTIRE script,
+-- not just parts of it.
 -- ============================================================================
 
 -- ============================================================================
